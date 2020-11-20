@@ -18,6 +18,7 @@ Wrappers to call DISQUS APIs:
 Other helper files:
 
 - `thread_info_tsv`: convert a pickle from `list_threads` to a TSV file.
+- `post_info_tsv`: convert a pickle from `list_posts` to a TSV file.
 
 ## Examples
 Sites that runs their comment sections with DISQUS can be pulled with this repository. Usually a site
