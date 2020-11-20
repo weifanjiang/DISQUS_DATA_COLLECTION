@@ -1,71 +1,85 @@
 import argparse
 import requests
-import os
+import pickle
 import json
-import tqdm
 import datetime
+import time
 
 
-def datetime2timestamp(datetime_str):
-    tokens = datetime_str.split("T")
-    year, month, day = tuple(map(int, tokens[0].split("-")))
-    hr, minute, sec = tuple(map(int, tokens[1].split(":")))
-    return datetime.datetime(year, month, day, hr, minute, sec).timestamp()
-
-
-def main(start_time_file, output_dir, config_file):
+def main(config_file):
     with open(config_file, "r") as fin:
         config = json.load(fin)
 
-    with open(start_time_file, "r") as fin:
-        start_time = json.load(fin)["start_time"]
+    joint_response = list()
 
-    file_name = os.path.join(output_dir, str(start_time) + ".tsv")
-
-    fout = open(file_name, "w")
-    fout.write('id\tcreatedAt\tusername\tforum\traw_message\n')
-
-    since = start_time
-    url = "https://disqus.com/api/3.0/forums/listPosts.json"
-    forum_name = config["forum_name"]
+    url = "https://disqus.com/api/3.0/threads/listPosts.json"
     api_key = config["api_key"]
+    since = config["since"]
+    thread = config["thread"]
 
-    for _ in tqdm.tqdm(range(60)):
+    cursor = None
+    done = False
+    num_requests = 0
+    while not done:
 
         limit = 100
         order = "asc"
 
-        response = requests.get("{}?forum={}&api_key={}&limit={}&order={}&since={}".format(
-            url,
-            forum_name,
-            api_key,
-            limit,
-            order,
-            int(since)
-        ))
-        response_json = response.json()
+        try:
+            if cursor is None:
+                response = requests.get("{}?thread={}&api_key={}&limit={}&order={}&since={}".format(
+                    url,
+                    thread,
+                    api_key,
+                    limit,
+                    order,
+                    since
+                ))
+            else:
+                response = requests.get("{}?thread={}&api_key={}&limit={}&order={}&since={}&cursor={}".format(
+                    url,
+                    thread,
+                    api_key,
+                    limit,
+                    order,
+                    since,
+                    cursor
+                ))
+            response_json = response.json()
+            joint_response += response_json["response"]
+            if response_json["cursor"]["hasNext"]:
+                cursor = response_json["cursor"]["next"]
+            else:
+                print("done!")
+                done = True
 
-        for resp in response_json["response"]:
-            fout.write("{}\t{}\t{}\t{}\t{}\n".format(
-                resp["id"], resp["createdAt"], resp["author"].get("username", None), resp["forum"],
-                resp["raw_message"].strip().replace("\n", "")
-            ))
+            num_requests += 1
 
-        since = int(datetime2timestamp(response_json["response"][-1]["createdAt"])) + 1
+            if num_requests % 10 == 0:
+                print("Fetched until {}".format(
+                    response_json["response"][-1]['createdAt']
+                ))
 
-    fout.close()
+            if num_requests % 300 == 0:
+                if not done:
+                    print("Sleeping for 70 min starting from {}".format(
+                        datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S")))
+                    time.sleep(60*70)
 
-    start_datetime = datetime.datetime.fromtimestamp(start_time).strftime("%m/%d/%Y, %H:%M:%S")
-    end_datetime = datetime.datetime.fromtimestamp(since).strftime("%m/%d/%Y, %H:%M:%S")
-    print("fetched data from {} to {}".format(start_datetime, end_datetime))
+        except:
 
-    with open(start_time_file, "w") as fout:
-        json.dump({"start_time": since}, fout)
+            print('request failed! perhaps due to quota exceeded')
+            print("Sleeping for 70 min starting from {}".format(
+                datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S")))
+            time.sleep(60 * 70)
+
+
+    with open(config['output'], 'wb') as fout:
+        pickle.dump(joint_response, fout)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('-s', '--start_time', type=str, default="istheservicedown_march/start_time.json")
-    parser.add_argument('-o', '--output_dir', type=str, default="istheservicedown_march")
-    parser.add_argument('-c', '--config_file', type=str, default="istheservicedown.json")
+    parser.add_argument('-c', '--config', type=str, required=True)
     args = parser.parse_args()
-    main(start_time_file=args.start_time, output_dir=args.output_dir, config_file=args.config_file)
+    main(config_file=args.config)
