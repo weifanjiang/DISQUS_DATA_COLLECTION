@@ -60,7 +60,7 @@ def main(config_file):
                     response_json["response"][-1]['createdAt']
                 ))
 
-            if num_requests % 300 == 0:
+            if num_requests % 500 == 0:
                 if not done:
                     print("Sleeping for 70 min starting from {}".format(
                         datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S")))
